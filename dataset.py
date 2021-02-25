@@ -144,7 +144,11 @@ class MaskMultiLabelDataset(MaskBaseDataset):
         male = 0
         female = 1
 
+    class AgeGroup:
+        map_label = lambda x: 0 if int(x) < 30 else 1 if int(x) < 60 else 2
+
     gender_labels = []
+    age_labels = []
 
     def setup(self):
         df = pd.read_csv(self.label_path)  # "../upstage/metadata.csv"
@@ -158,16 +162,22 @@ class MaskMultiLabelDataset(MaskBaseDataset):
 
                     id, gender, race, age = profile.split("_")
                     gender_label = getattr(self.GenderLabels, gender)
+                    age_label = self.AgeGroup.map_label(age)
+
                     self.gender_labels.append(gender_label)
+                    self.age_labels.append(age_label)
 
     def get_gender_label(self, index):
         return self.gender_labels[index]
 
+    def get_age_label(self, index):
+        return self.age_labels[index]
+
     def __getitem__(self, index):
         image = self.read_image(index)
-        base_label = self.get_label(index)
+        mask_label = self.get_label(index)
         gender_label = self.get_gender_label(index)
+        age_label = self.get_age_label(index)
 
         image_transform = self.transform(image)
-        labels = np.array([base_label, gender_label])
-        return image_transform, labels
+        return image_transform, mask_label, gender_label, age_label

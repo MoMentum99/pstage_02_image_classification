@@ -7,7 +7,7 @@ from torch.optim import Adam
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.tensorboard import SummaryWriter
 
-from dataset import MaskBaseDataset
+from dataset import MaskBaseDataset, MaskMultiLabelDataset
 from model import *
 
 
@@ -31,7 +31,7 @@ if __name__ == '__main__':
     val_split = 0.1
     batch_size = 64
     num_workers = 32  # todo : fix
-    num_classes = 3
+    num_classes = 8  # 3(mask) + 2(gender) + 3(age group)
 
     num_epochs = 100
     lr = 1e-4
@@ -51,7 +51,7 @@ if __name__ == '__main__':
         model = VGG19(num_classes=num_classes, pretrained=True, freeze=False).to(device)
 
     # -- data_loader
-    dataset = MaskBaseDataset(img_root, label_path, 'train')
+    dataset = MaskMultiLabelDataset(img_root, label_path, 'train')
     n_val = int(len(dataset) * val_split)
     n_train = len(dataset) - n_val
     train_set, val_set = torch.utils.data.random_split(dataset, [n_train, n_val])
@@ -87,36 +87,60 @@ if __name__ == '__main__':
         # train loop
         model.train()
         loss_value = 0
-        matches = 0
+        mask_matches = 0
+        gender_matches = 0
+        age_matches = 0
         for idx, train_batch in enumerate(train_loader):
-            inputs, labels = train_batch
+            inputs, mask_labels, gender_labels, age_labels = train_batch
             inputs = inputs.to(device)
-            labels = labels.to(device)
+            mask_labels = mask_labels.to(device)
+            gender_labels = gender_labels.to(device)
+            age_labels = age_labels.to(device)
 
             optimizer.zero_grad()
 
             outs = model(inputs)
-            preds = torch.argmax(outs, dim=-1)
-            loss = criterion(reduction='mean')(outs, labels)
+            mask_logits, gender_logits, age_logits = torch.split(outs, [3, 2, 3], dim=1)
+
+            mask_loss = criterion(reduction='mean')(mask_logits, mask_labels)
+            gender_loss = criterion(reduction='mean')(gender_logits, gender_labels)  # todo : fix to bce?
+            age_loss = criterion(reduction='mean')(age_logits, age_labels)
+            loss = mask_loss + gender_loss + age_loss
+
+            mask_preds = torch.argmax(mask_logits, dim=-1)
+            gender_preds = torch.argmax(gender_logits, dim=-1)
+            age_preds = torch.argmax(age_logits, dim=-1)
 
             loss.backward()
             optimizer.step()
 
             loss_value += loss.item()
-            matches += (preds == labels).sum().item()
+            mask_matches += (mask_preds == mask_labels).sum().item()
+            gender_matches += (gender_preds == gender_labels).sum().item()
+            age_matches += (age_preds == age_labels).sum().item()
             if (idx + 1) % train_log_interval == 0:
                 train_loss = loss_value / train_log_interval
-                train_acc = matches / batch_size / train_log_interval
+                mask_acc = mask_matches / batch_size / train_log_interval
+                gender_acc = gender_matches / batch_size / train_log_interval
+                age_acc = age_matches / batch_size / train_log_interval
                 current_lr = optimizer.param_groups[0]['lr']
                 print(
-                    f"Epoch[{epoch}/{num_epochs}]({idx + 1}/{len(train_loader)}) || "
-                    f"training loss {train_loss:4.4} || training accuracy {train_acc:4.2%} || lr {current_lr}"
+                    f"Epoch[{epoch}/{num_epochs}]({idx + 1}/{len(train_loader)})\n"
+                    f"Loss: total {train_loss:4.4} || mask {mask_loss:4.4} || gender {gender_loss:4.4} || age {age_loss:4.4}\n"
+                    f"Acc: mask {mask_acc:4.2%} || gender {gender_acc:4.2%} || age {age_acc:4.2%}"
                 )
-                logger.add_scalar("Train/loss", train_loss, epoch * len(train_loader) + idx)
-                logger.add_scalar("Train/accuracy", train_acc, epoch * len(train_loader) + idx)
+                logger.add_scalar("Train/Loss/total", train_loss, epoch * len(train_loader) + idx)
+                logger.add_scalar("Train/Loss/mask", mask_loss, epoch * len(train_loader) + idx)
+                logger.add_scalar("Train/Loss/gender", gender_loss, epoch * len(train_loader) + idx)
+                logger.add_scalar("Train/Loss/age", age_loss, epoch * len(train_loader) + idx)
+                logger.add_scalar("Train/Acc/mask", mask_acc, epoch * len(train_loader) + idx)
+                logger.add_scalar("Train/Acc/gender", gender_acc, epoch * len(train_loader) + idx)
+                logger.add_scalar("Train/Acc/age", age_acc, epoch * len(train_loader) + idx)
 
                 loss_value = 0
-                matches = 0
+                mask_matches = 0
+                gender_matches = 0
+                age_matches = 0
 
         scheduler.step()
 
@@ -125,22 +149,42 @@ if __name__ == '__main__':
             print("Calculating validation results...")
             model.eval()
             val_loss_items = []
-            val_acc_items = []
+            val_mask_acc_items = []
+            val_gender_acc_items = []
+            val_age_acc_items = []
             for val_batch in val_loader:
-                inputs, labels = val_batch
+                inputs, mask_labels, gender_labels, age_labels = val_batch
                 inputs = inputs.to(device)
-                labels = labels.to(device)
+                mask_labels = mask_labels.to(device)
+                gender_labels = gender_labels.to(device)
+                age_labels = age_labels.to(device)
 
                 outs = model(inputs)
-                preds = torch.argmax(outs, dim=-1)
+                mask_logits, gender_logits, age_logits = torch.split(outs, [3, 2, 3], dim=1)
 
-                loss_item = criterion(reduction='sum')(outs, labels).item()
-                acc_item = (labels == preds).sum().item()
+                mask_preds = torch.argmax(mask_logits, dim=-1)
+                gender_preds = torch.argmax(gender_logits, dim=-1)
+                age_preds = torch.argmax(age_logits, dim=-1)
+
+                mask_loss = criterion(reduction='sum')(mask_logits, mask_labels).item()
+                gender_loss = criterion(reduction='sum')(gender_logits, gender_labels).item()  # todo : fix to bce?
+                age_loss = criterion(reduction='sum')(age_logits, age_labels).item()
+                loss_item = mask_loss + gender_loss + age_loss
+
+                mask_matches = (mask_preds == mask_labels).sum().item()
+                gender_matches = (gender_preds == gender_labels).sum().item()
+                age_matches = (age_preds == age_labels).sum().item()
+
                 val_loss_items.append(loss_item)
-                val_acc_items.append(acc_item)
+                val_mask_acc_items.append(mask_matches)
+                val_gender_acc_items.append(gender_matches)
+                val_age_acc_items.append(age_matches)
 
             val_loss = np.sum(val_loss_items) / len(val_set)
-            val_acc = np.sum(val_acc_items) / len(val_set)
+            val_mask_acc = np.sum(val_mask_acc_items) / len(val_set)
+            val_gender_acc = np.sum(val_gender_acc_items) / len(val_set)
+            val_age_acc = np.sum(val_age_acc_items) / len(val_set)
+            val_acc = (val_mask_acc + val_age_acc + val_age_acc) / 3
             if val_loss < best_val_loss:
                 print("New best model for val loss! saving the model..")
                 torch.save(model.state_dict(), f"results/{name}/{epoch:03}_loss_{val_loss:4.2}.ckpt")
@@ -150,7 +194,7 @@ if __name__ == '__main__':
                 torch.save(model.state_dict(), f"results/{name}/{epoch:03}_accuracy_{val_acc:4.2%}.ckpt")
                 best_val_acc = val_acc
             print(
-                f"[Val] acc : {val_acc:4.2%}, loss: {val_loss:4.2} || "
+                f"[Val] mask acc : {val_mask_acc:4.2%}, gender acc : {val_gender_acc:4.2%}, age acc : {val_age_acc:4.2%}, loss: {val_loss:4.2} || "
                 f"best acc : {best_val_acc:4.2%}, best loss: {best_val_loss:4.2}"
             )
             logger.add_scalar("Val/loss", val_loss, epoch)
