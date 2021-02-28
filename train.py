@@ -13,6 +13,8 @@ from loss import create_criterion
 
 from sklearn.model_selection import StratifiedKFold
 
+import wandb
+
 def seed_everything(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
@@ -67,6 +69,12 @@ if __name__ == '__main__':
 
     train_log_interval = 20
     name = "02_vgg"
+
+    # -- wandb initialize with configuration
+    wandb.init(config={"batch_size": batch_size,
+                       "lr"        : lr,
+                       "epochs"    : num_epochs,
+                       "backborn"  : name})
 
     # -- settings
     use_cuda = torch.cuda.is_available()
@@ -133,6 +141,12 @@ if __name__ == '__main__':
                     loss_value = 0
                     matches = 0
 
+                    # logging wandb train phase 
+                    wandb.log({
+                        "Train loss": train_loss,
+                        "Train acc" : train_acc
+                    })
+
             scheduler.step()
 
             # val loop
@@ -171,3 +185,9 @@ if __name__ == '__main__':
                 logger.add_scalar("Val/loss", val_loss, epoch)
                 logger.add_scalar("Val/accuracy", val_acc, epoch)
                 print()
+
+                # logging wandb valid phase
+                wandb.log({
+                    "Valid loss": val_loss,
+                    "Valid acc" : val_acc
+                })
