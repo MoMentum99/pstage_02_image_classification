@@ -1,5 +1,6 @@
 import random
 import os
+from importlib import import_module
 
 import numpy as np
 from torch.utils.data import Subset
@@ -29,6 +30,10 @@ if __name__ == '__main__':
     img_root = os.getenv("IMG_ROOT")
     label_path = os.getenv("LABEL_PATH")
 
+    model_name = "VGG19"
+    use_pretrained = True
+    freeze_backbone = False
+
     val_split = 0.4
     batch_size = 64
     num_workers = 32  # todo : fix
@@ -47,10 +52,12 @@ if __name__ == '__main__':
     device = torch.device("cuda" if use_cuda else "cpu")
 
     # -- model
-    if False:
-        model = AlexNet(num_classes=num_classes).to(device)
-    else:
-        model = VGG19(num_classes=num_classes, pretrained=True, freeze=False).to(device)
+    model_cls = getattr(import_module("model"), model_name)
+    model = model_cls(
+        num_classes=num_classes,
+        pretrained=use_pretrained,
+        freeze=freeze_backbone
+    ).to(device)
 
     # -- data_loader
     dataset = MaskBaseDataset(img_root, label_path, 'train')
