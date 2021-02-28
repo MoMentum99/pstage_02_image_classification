@@ -1,19 +1,33 @@
 import torch
 import torch.nn as nn
 import torch.nn.init as init
+from torch.hub import load_state_dict_from_url
 
 
 class MaskBaseModel(nn.Module):
     def __init__(self, num_classes=3, pretrained=False, freeze=False):
         super().__init__()
 
-        self.net = self.build_layers(num_classes, pretrained)
+        self.build_layers(num_classes, pretrained)
 
         if not pretrained:
             self._initialize_weights()
 
-        if not freeze:
+        if freeze:
             self._freeze_net()
+
+    def build_layers(self, num_classes, pretrained):
+        raise NotImplementedError
+
+    def backbone_layers(self):
+        """ returns backbone layers to be referenced for weight freezing or lr targeting """
+
+        raise NotImplementedError
+
+    def classifier_layers(self):
+        """ returns classifier layers to be referenced for weight freezing or lr targeting """
+
+        raise NotImplementedError
 
     def forward(self, x):
         raise NotImplementedError
@@ -32,17 +46,14 @@ class MaskBaseModel(nn.Module):
                 m.bias.data.zero_()
 
     def _freeze_net(self):
-        for param in self.net.parameters():
+        backbone_layers = self.backbone_layers()
+        for param in backbone_layers.parameters():
             param.requires_grad = False
 
-        for param in self.net.classifier.parameters():
-            param.requires_grad = True
 
+class AlexNet(MaskBaseModel):
 
-class AlexNet(nn.Module):
-
-    def __init__(self, num_classes=3, pretrained=False, freeze=False):
-        super().__init__()
+    def build_layers(self, num_classes, pretrained):
         self.features = nn.Sequential(
             nn.Conv2d(3, 64, kernel_size=11, stride=4, padding=2),
             nn.ReLU(inplace=True),
@@ -69,8 +80,15 @@ class AlexNet(nn.Module):
             nn.Linear(4096, num_classes),
         )
 
-        if not pretrained:
-            self._initialize_weights()
+    def backbone_layers(self):
+        """ returns backbone layers to be referenced for weight freezing or lr targeting """
+
+        return self.features
+
+    def classifier_layers(self):
+        """ returns classifier layers to be referenced for weight freezing or lr targeting """
+
+        return self.classifier
 
     def forward(self, x):
         x = self.features(x)
@@ -79,24 +97,10 @@ class AlexNet(nn.Module):
         x = self.classifier(x)
         return x
 
-    def _initialize_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                init.xavier_uniform_(m.weight.data)
-                if m.bias is not None:
-                    m.bias.data.zero_()
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-            elif isinstance(m, nn.Linear):
-                m.weight.data.normal_(0, 0.01)
-                m.bias.data.zero_()
 
+class VGG19(MaskBaseModel):
 
-class VGG19(nn.Module):
-
-    def __init__(self, num_classes=3, pretrained=False, freeze=False):
-        super().__init__()
+    def build_layers(self, num_classes, pretrained):
         from torchvision.models import vgg19
         self.net = vgg19(pretrained=pretrained)
         self.net.classifier = nn.Sequential(
@@ -109,31 +113,15 @@ class VGG19(nn.Module):
             nn.Linear(4096, num_classes),
         )
 
-        if not pretrained:
-            self._initialize_weights()
+    def backbone_layers(self):
+        """ returns backbone layers to be referenced for weight freezing or lr targeting """
 
-        if freeze:
-            self._freeze_net()
+        return self.net.features
+
+    def classifier_layers(self):
+        """ returns classifier layers to be referenced for weight freezing or lr targeting """
+
+        return self.net.classifier
 
     def forward(self, x):
         return self.net(x)
-
-    def _initialize_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                init.xavier_uniform_(m.weight.data)
-                if m.bias is not None:
-                    m.bias.data.zero_()
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-            elif isinstance(m, nn.Linear):
-                m.weight.data.normal_(0, 0.01)
-                m.bias.data.zero_()
-
-    def _freeze_net(self):
-        for param in self.net.parameters():
-            param.requires_grad = False
-
-        for param in self.net.classifier.parameters():
-            param.requires_grad = True
