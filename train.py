@@ -41,11 +41,12 @@ if __name__ == '__main__':
 
     num_epochs = 100
     lr = 1e-4
+    lr_classifier = 1e-3
     lr_decay_step = 10
     criterion_name = 'label_smoothing'
 
     train_log_interval = 20
-    name = "02_vgg"
+    name = "04_lr_targeting"
 
     # -- settings
     use_cuda = torch.cuda.is_available()
@@ -82,7 +83,11 @@ if __name__ == '__main__':
 
     # -- loss & metric
     criterion = create_criterion(criterion_name)
-    optimizer = Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=lr, weight_decay=5e-4)
+    optimizer = Adam([
+        {'params': filter(lambda p: p.requires_grad, model.backbone_layers().parameters())},
+        {'params': filter(lambda p: p.requires_grad, model.classifier_layers().parameters()), 'lr': lr_classifier}
+    ], lr=lr, weight_decay=5e-4)
+
     scheduler = StepLR(optimizer, lr_decay_step, gamma=0.5)
     # metrics = []
     # callbacks = []
