@@ -29,7 +29,7 @@ def getDataloader(dataset, train_idx, valid_idx, batch_size, num_workers):
                                         indices=train_idx)
     val_set   = torch.utils.data.Subset(dataset,
                                         indices=valid_idx)
-    val_set.dataset.set_pahse("test")
+    val_set.dataset.set_phase("test")
 
     train_loader = torch.utils.data.DataLoader(
         train_set,
@@ -169,7 +169,7 @@ if __name__ == '__main__':
                     val_acc_items.append(acc_item)
 
                 val_loss = np.sum(val_loss_items) / len(val_loader)
-                val_acc = np.sum(val_acc_items) / len(val_loader)
+                val_acc = np.sum(val_acc_items) / len(valid_idx)
                 if val_loss < best_val_loss:
                     print("New best model for val loss! saving the model..")
                     torch.save(model.state_dict(), f"results/{name}/{epoch:03}_loss_{val_loss:4.2}.ckpt")
